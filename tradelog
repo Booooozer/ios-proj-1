@@ -1,0 +1,36 @@
+#!/bin/sh
+
+export LC=en_US.UTF-8
+export POSIXLY_CORRECT=yes
+
+print_help() {
+    echo "Usage: tradelog [-h|--help] [FILTER] [COMMAND] [LOG [LOG2 [...]]"
+    echo ""
+    echo "COMMAND"
+    echo "  list-tick   Prints a list of occurring stock symbols"
+    echo "  profit      Overall profit"
+    echo "  pos         Value of held stock symbol"
+    echo "  last-price  Last known price of each ticker"
+    echo "  hist-ord    Transactions history of ticker"
+    echo "  graph-pos   Graph of values of held positions according to ticker"
+    echo ""
+    echo "FILTER"
+    echo "  -a DATETIME     after - uses tickers after set time"
+    echo "  -b DATETIME     before - uses tickers before set time"
+    echo "  -t TICKER       uses only selected tickers"
+    echo "  -w WIDTH        Width of the longest line in graph"
+    echo "  -h --help       help"
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+    -h | --help)
+        print_help
+        exit 0
+        ;;
+
+    esac
+
+
+
+done
