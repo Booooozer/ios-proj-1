@@ -22,15 +22,62 @@ print_help() {
     echo "  -h --help       help"
 }
 
+LOG=""
+LOG_GZ=""
+COMMAND=""
+TICKERS=""
+AFTER=""
+BEFORE="9999-99-99"
+# parsing parameters
 while [ "$#" -gt 0 ]; do
     case "$1" in
     -h | --help)
         print_help
         exit 0
         ;;
-
+    -t)
+        TICKERS="$2\|$TICKERS"
+        shift; shift
+        ;;
+    -a)
+        AFTER="$2"
+        shift; shift
+        ;;
+    *)
+        if [ $1 == *".gz" ]; then
+            LOG_GZ="$LOG_GZ $1"
+        else
+            LOG="$LOG $1"
+        fi
+        shift
+        ;;
     esac
 
 
 
 done
+
+# Parsing inputs
+# Only raw text or stdin
+READ_INPUT="cat $LOG"
+# gz and raw text
+if [ "$LOG_GZ" ] && [ "$LOG" ]; then
+    READ_INPUT+=" && gzip -d -c $LOG_GZ"
+# only gz
+elif [ "$LOG_GZ" ] && [ !"$LOG" ]; then
+    READ_INPUT="gzip -d -c $LOG_GZ"
+fi
+
+# Parsing TICKERS
+if [ "$TICKERS" ]; then
+    TICKERS_FILTER="grep -w \$TICKERS"
+else
+    TICKERS_FILTER="grep ^.*"
+fi
+
+
+
+READ_FILTER="eval $READ_INPUT | awk -F ';' '\$1 > \"$AFTER\" { print \$0 }' | eval \$TICKERS_FILTER"
+$READ_FILTER
+
+exit 0
