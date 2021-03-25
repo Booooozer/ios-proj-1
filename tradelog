@@ -35,8 +35,36 @@ while [ "$#" -gt 0 ]; do
         print_help
         exit 0
         ;;
+    list-tick)
+        COMMAND="list-tick"
+        shift
+        ;;
+    profit)
+        COMMAND="profit"
+        shift
+        ;;
+    pos)
+        COMMAND="pos"
+        shift
+        ;;    
+    last-price)
+        COMMAND="last-price"
+        shift
+        ;;
+    hist-ord)
+        COMMAND="hist-ord"
+        shift
+        ;;
+    graph-pos)
+        COMMAND="graph-pos"
+        shift
+        ;;
     -t)
         TICKERS="$2\|$TICKERS"
+        shift; shift
+        ;;
+    -b)
+        BEFORE="$2"
         shift; shift
         ;;
     -a)
@@ -52,9 +80,6 @@ while [ "$#" -gt 0 ]; do
         shift
         ;;
     esac
-
-
-
 done
 
 # Parsing inputs
@@ -69,15 +94,37 @@ elif [ "$LOG_GZ" ] && [ !"$LOG" ]; then
 fi
 
 # Parsing TICKERS
+#if [ "$TICKERS" ]; then
+#    TICKERS_FILTER="grep -w \$TICKERS"
+#else
+#    TICKERS_FILTER="grep ^.*"
+#fi
+
+
+FILTER="eval $READ_INPUT"
+# FILTERS
 if [ "$TICKERS" ]; then
-    TICKERS_FILTER="grep -w \$TICKERS"
-else
-    TICKERS_FILTER="grep ^.*"
+    FILTER="$FILTER | grep -w \$TICKERS"
+fi
+
+if [ "$AFTER" ]; then
+    FILTER="$FILTER | awk -F ';' '\$1 > \"$AFTER\" {print \$0}'"
+fi
+
+if [ "$BEFORE" != "9999-99-99" ]; then
+    FILTER="$FILTER | awk -F ';' '\$1 < \"$BEFORE\" {print \$0}'"
+fi
+
+# COMMANDS
+if [ "$COMMAND" = "list-tick" ]; then
+    FILTER="$FILTER | awk -F ';' '{print \$2}' | sort -u"
 fi
 
 
 
-READ_FILTER="eval $READ_INPUT | awk -F ';' '\$1 > \"$AFTER\" { print \$0 }' | eval \$TICKERS_FILTER"
-$READ_FILTER
 
+#READ_FILTER="eval $READ_INPUT | awk -F ';' '\$1 > \"$AFTER\" { print \$0 }' | eval \$TICKERS_FILTER"
+
+$FILTER
+echo "$FILTER"
 exit 0
