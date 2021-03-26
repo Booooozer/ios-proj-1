@@ -93,14 +93,6 @@ elif [ "$LOG_GZ" ] && [ !"$LOG" ]; then
     READ_INPUT="gzip -d -c $LOG_GZ"
 fi
 
-# Parsing TICKERS
-#if [ "$TICKERS" ]; then
-#    TICKERS_FILTER="grep -w \$TICKERS"
-#else
-#    TICKERS_FILTER="grep ^.*"
-#fi
-
-
 FILTER="eval $READ_INPUT"
 # FILTERS
 if [ "$TICKERS" ]; then
@@ -116,15 +108,48 @@ if [ "$BEFORE" != "9999-99-99" ]; then
 fi
 
 # COMMANDS
-if [ "$COMMAND" = "list-tick" ]; then
-    FILTER="$FILTER | awk -F ';' '{print \$2}' | sort -u"
-fi
+#if [ "$COMMAND" = "list-tick" ]; then
+#    FILTER="$FILTER | awk -F ';' '{print \$2}' | sort -u"
+#fi
+
+case "$COMMAND" in
+    list-tick)
+        $FILTER | awk -F ';' '{print $2}' | sort -u
+        ;;
+    profit)
+        $FILTER | awk -F ';' '{if ($3 == "buy") {sum-=$4*$6}
+                        else {sum+=$4*$6}} END {printf "%.2f\n", sum}'
+        ;;
+    pos)
+        # Sort chronologically and by TICKERS
+        FILTER="$FILTER | sort -s -t ';' -k 2,2"
+            $FILTER | awk -F ';' '{ 
+            # first line
+            if (curTick == "") {
+                curTick = $2;
+                sum = 0;
+            }
+            # new ticker                            
+            else if (curTick != $2) {
+                printf("%-8s : %11.2f\n", curTick, sum*lastPrice);
+                curTick = $2;
+                sum = 0;
+            }
+            
+            # sum money
+            if ($3 == "buy")
+                sum+=$6;
+            else 
+                sum-=$6;
+
+            lastPrice = $4
+        }' | sort -t ':' -k 2,2 -n -r
+        ;;
+    *)
+        $FILTER
+esac
 
 
-
-
-#READ_FILTER="eval $READ_INPUT | awk -F ';' '\$1 > \"$AFTER\" { print \$0 }' | eval \$TICKERS_FILTER"
-
-$FILTER
-echo "$FILTER"
+#$FILTER
+#echo "$FILTER"
 exit 0
