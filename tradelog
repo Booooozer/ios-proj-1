@@ -1,6 +1,6 @@
 #!/bin/sh
 
-export LC=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
 export POSIXLY_CORRECT=yes
 
 print_help() {
@@ -22,11 +22,6 @@ print_help() {
     echo "  -h --help       help"
 }
 
-LOG=""
-LOG_GZ=""
-COMMAND=""
-TICKERS=""
-AFTER=""
 BEFORE="9999-99-99"
 # parsing parameters
 while [ "$#" -gt 0 ]; do
@@ -71,7 +66,24 @@ while [ "$#" -gt 0 ]; do
         AFTER="$2"
         shift; shift
         ;;
+    -w)
+        if [ ! -z "$WIDTH" ]; then
+            1>&2 echo "Only one WIDTH parameter allowed"
+            exit 1
+        fi
+        WIDTH="$2"
+        if [ "$WIDTH" -le 0 ]; then
+            1>&2 echo "Invalid WIDTH parameter"
+            exit 1
+        fi
+        shift; shift
+        ;;
     *)
+        if [ ! -f "$1" ]; then
+           1>&2 echo "$1 is not a file or parameter"
+           exit 1
+        fi
+        
         if [ $1 == *".gz" ]; then
             LOG_GZ="$LOG_GZ $1"
         else
@@ -98,20 +110,18 @@ FILTER="eval $READ_INPUT"
 if [ "$TICKERS" ]; then
     FILTER="$FILTER | grep -w \$TICKERS"
 fi
-
 if [ "$AFTER" ]; then
     FILTER="$FILTER | awk -F ';' '\$1 > \"$AFTER\" {print \$0}'"
 fi
-
 if [ "$BEFORE" != "9999-99-99" ]; then
     FILTER="$FILTER | awk -F ';' '\$1 < \"$BEFORE\" {print \$0}'"
 fi
 
-# COMMANDS
-#if [ "$COMMAND" = "list-tick" ]; then
-#    FILTER="$FILTER | awk -F ';' '{print \$2}' | sort -u"
-#fi
+#Sorts output for last-price and pos
+SORTER="eval awk -F ':' '{ print length(\$2), \$0 }' | sort -n -r | cut -d\" \" -f2- | 
+    awk -F ':' '{ if(len == \"\")len = length(\$2); printf(\"%-10s: %*s\n\", \$1, len, \$2)}'"
 
+# Execute
 case "$COMMAND" in
     list-tick)
         $FILTER | awk -F ';' '{print $2}' | sort -u
@@ -123,33 +133,63 @@ case "$COMMAND" in
     pos)
         # Sort chronologically and by TICKERS
         FILTER="$FILTER | sort -s -t ';' -k 2,2"
-            $FILTER | awk -F ';' '{ 
+        $FILTER | awk -F ';' '{ 
             # first line
             if (curTick == "") {
-                curTick = $2;
-                sum = 0;
+                curTick = $2
+                sum = 0
             }
             # new ticker                            
             else if (curTick != $2) {
-                printf("%-8s : %11.2f\n", curTick, sum*lastPrice);
-                curTick = $2;
-                sum = 0;
-            }
-            
+                printf("%s:%.2f\n", curTick, sum*lastPrice)
+                curTick = $2
+                sum = 0
+            }            
             # sum money
             if ($3 == "buy")
-                sum+=$6;
+                sum+=$6
             else 
-                sum-=$6;
+                sum-=$6
 
             lastPrice = $4
-        }' | sort -t ':' -k 2,2 -n -r
+        } END {printf("%s:%.2f\n", curTick, sum*lastPrice)}' | $SORTER | sort -t ':' -k 2,2 -n -r
+        ;;
+    last-price)
+        FILTER="$FILTER | sort -s -t ';' -k 2,2"
+            $FILTER | awk -F ';' '{
+            if (curTick == "") {
+                curTick = $2
+            }
+            # new ticker                            
+            if (curTick != $2) {
+                printf("%s:%.2f\n", curTick, lastPrice)
+                curTick = $2
+            }
+            lastPrice = $4
+        } END {printf("%s:%.2f\n", curTick, lastPrice)}' | $SORTER | sort -t ':' -k 1,1
+        ;;
+    hist-ord)
+        FILTER="$FILTER | sort -s -t ';' -k 2,2"
+        $FILTER | awk -F ';' '{ 
+            # first line
+            if (curTick == "") {
+                curTick = $2
+                transact = 0
+            }
+            # new ticker                            
+            else if (curTick != $2) {
+                printf("%-10s: ", curTick)
+                for (i=0; i<transact; i++){printf("#")}
+                printf("\n")
+                curTick = $2
+                transact = 0
+            }            
+            # sum transactions
+            transact+=1
+        } END {printf("%-10s: ", curTick);for (i=0; i<transact; i++){printf("#")};printf("\n")}'
         ;;
     *)
         $FILTER
 esac
 
-
-#$FILTER
-#echo "$FILTER"
 exit 0
