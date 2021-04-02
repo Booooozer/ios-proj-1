@@ -67,7 +67,7 @@ while [ "$#" -gt 0 ]; do
         shift; shift
         ;;
     -w)
-        if [ ! -z "$WIDTH" ]; then
+        if [ -n "$WIDTH" ]; then
             1>&2 echo "Only one WIDTH parameter allowed"
             exit 1
         fi
@@ -84,7 +84,7 @@ while [ "$#" -gt 0 ]; do
            exit 1
         fi
         
-        if [ $1 == *".gz" ]; then
+        if [ "$1" = *".gz" ]; then
             LOG_GZ="$LOG_GZ $1"
         else
             LOG="$LOG $1"
@@ -99,9 +99,9 @@ done
 READ_INPUT="cat $LOG"
 # gz and raw text
 if [ "$LOG_GZ" ] && [ "$LOG" ]; then
-    READ_INPUT+=" && gzip -d -c $LOG_GZ"
+    READ_INPUT="$READ_INPUT | gzip -d -c $LOG_GZ"
 # only gz
-elif [ "$LOG_GZ" ] && [ !"$LOG" ]; then
+elif [ "$LOG_GZ" ] && [ ! "$LOG" ]; then
     READ_INPUT="gzip -d -c $LOG_GZ"
 fi
 
@@ -117,8 +117,28 @@ if [ "$BEFORE" != "9999-99-99" ]; then
     FILTER="$FILTER | awk -F ';' '\$1 < \"$BEFORE\" {print \$0}'"
 fi
 
-#Sorts output for last-price and pos
-SORTER="eval awk -F ':' '{ print length(\$2), \$0 }' | sort -n -r | cut -d\" \" -f2- | 
+# :)
+# Filter for evaluating pos / graph-pos
+posFilt="eval awk -F ';' '{ 
+            if (curTick == \"\") {
+                curTick = \$2;
+                sum = 0;
+            }                          
+            else if (curTick != \$2) {
+                printf(\"%s:%.2f\n\", curTick, sum*lastPrice);
+                curTick = \$2;
+                sum = 0;
+            }            
+            if (\$3 == \"buy\")
+                sum+=\$6;
+            else 
+                sum-=\$6;
+
+            lastPrice = \$4
+        } END {printf(\"%s:%.2f\n\", curTick, sum*lastPrice)}'"
+
+#Sorts output by length
+sorter="eval awk -F ':' '{ print length(\$2), \$0 }' | sort -n -r | cut -d\" \" -f2- | 
     awk -F ':' '{ if(len == \"\")len = length(\$2); printf(\"%-10s: %*s\n\", \$1, len, \$2)}'"
 
 # Execute
@@ -133,26 +153,7 @@ case "$COMMAND" in
     pos)
         # Sort chronologically and by TICKERS
         FILTER="$FILTER | sort -s -t ';' -k 2,2"
-        $FILTER | awk -F ';' '{ 
-            # first line
-            if (curTick == "") {
-                curTick = $2
-                sum = 0
-            }
-            # new ticker                            
-            else if (curTick != $2) {
-                printf("%s:%.2f\n", curTick, sum*lastPrice)
-                curTick = $2
-                sum = 0
-            }            
-            # sum money
-            if ($3 == "buy")
-                sum+=$6
-            else 
-                sum-=$6
-
-            lastPrice = $4
-        } END {printf("%s:%.2f\n", curTick, sum*lastPrice)}' | $SORTER | sort -t ':' -k 2,2 -n -r
+        $FILTER | $posFilt | $sorter | sort -t ':' -k 2,2 -n -r
         ;;
     last-price)
         FILTER="$FILTER | sort -s -t ';' -k 2,2"
@@ -166,27 +167,82 @@ case "$COMMAND" in
                 curTick = $2
             }
             lastPrice = $4
-        } END {printf("%s:%.2f\n", curTick, lastPrice)}' | $SORTER | sort -t ':' -k 1,1
+        } END {printf("%s:%.2f\n", curTick, lastPrice)}' | $sorter | sort -t ':' -k 1,1
         ;;
     hist-ord)
         FILTER="$FILTER | sort -s -t ';' -k 2,2"
-        $FILTER | awk -F ';' '{ 
-            # first line
-            if (curTick == "") {
-                curTick = $2
-                transact = 0
-            }
-            # new ticker                            
-            else if (curTick != $2) {
-                printf("%-10s: ", curTick)
-                for (i=0; i<transact; i++){printf("#")}
-                printf("\n")
-                curTick = $2
-                transact = 0
-            }            
-            # sum transactions
-            transact+=1
-        } END {printf("%-10s: ", curTick);for (i=0; i<transact; i++){printf("#")};printf("\n")}'
+        if [ -z "$WIDTH" ]; then        
+            $FILTER | awk -F ';' '{ 
+                # first line
+                if (curTick == "") {
+                    curTick = $2
+                    transact = 0
+                }
+                # new ticker                            
+                else if (curTick != $2) {
+                    printf("%-10s: ", curTick)
+                    for (i=0; i<transact; i++){printf("#")}
+                    printf("\n")
+                    curTick = $2
+                    transact = 0
+                }            
+                # sum transactions
+                transact+=1
+            } END {printf("%-10s: ", curTick);for(i=0; i<transact; i++){printf("#")};printf("\n")}'
+        else
+            FILTER="$FILTER | sort -s -t ';' -k 2,2"
+            $FILTER | awk -F ';' '{
+                # first line
+                if (curTick == "") {
+                    curTick = $2
+                    count = 0
+                }
+                # new ticker                            
+                else if (curTick != $2) {
+                    printf("%d;%s\n", count, curTick) 
+                    curTick = $2
+                    count = 0
+                }
+                count+=1
+            } END{printf("%d;%s\n", count, curTick)}' | sort -n -r | awk -F ';' -v width="$WIDTH" '{if(max==""){max = $1}
+                printf("%-10s: ", $2);for(i=0; i<int($1/max*width); i++){printf("#")};printf("\n")}' | sort -t ':' -k 1,1
+        fi
+        ;;
+    graph-pos)
+        if [ -z "$WIDTH" ]; then
+            WIDTH=1000
+            FILTER="$FILTER | sort -s -t ';' -k 2,2"
+            $FILTER | $posFilt | $sorter | sort -t ':' -k 2,2 -n -r | awk -F ':' -v width="$WIDTH" '{
+                printf("%-10s: ", $1);
+                if($2 < 0) {
+                    for(i=0;i<int(-$2/width);i++){
+                    printf("!");
+                    }
+                } else {
+                    for(i=0;i<int($2/width);i++){
+                    printf("#");
+                    }
+                }          
+                printf("\n")}' | sort -t ':' -k 1,1
+        else
+            FILTER="$FILTER | sort -s -t ';' -k 2,2" 
+            # sed stuff - puts minus at the end of number | numerical sort | put - to the front of number
+            $FILTER | $posFilt | $sorter | sed -r 's/-([0-9]+.[0-9]+)/\1-/g;' | sort -t ':' -k 2,2 -n -r | sed -r 's/([0-9]+.[0-9]+)-/-\1/g;' | awk -F ':' -v width="$WIDTH" '{
+                if(max==""){
+                    ($2) > 0 ? max=$2 : max=-$2;
+                }
+                printf("%-10s: ", $1);
+                if($2 < 0) {
+                    for(i=0;i<int(-$2/max*width);i++){
+                    printf("!");
+                    }
+                } else {
+                    for(i=0;i<int($2/max*width);i++){
+                    printf("#");
+                    }
+                }          
+                printf("\n")}' | sort -t ':' -k 1,1
+        fi
         ;;
     *)
         $FILTER
