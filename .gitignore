@@ -1,3 +1,4 @@
 stock*
 ./test-cases/
+./tedro test/
 iotest

@@ -6,7 +6,7 @@ export POSIXLY_CORRECT=yes
 print_help() {
     echo "Usage: tradelog [-h|--help] [FILTER] [COMMAND] [LOG [LOG2 [...]]"
     echo ""
-    echo "COMMAND"
+    echo "COMMANDS"
     echo "  list-tick   Prints a list of occurring stock symbols"
     echo "  profit      Overall profit"
     echo "  pos         Value of held stock symbol"
@@ -14,7 +14,7 @@ print_help() {
     echo "  hist-ord    Transactions history of ticker"
     echo "  graph-pos   Graph of values of held positions according to ticker"
     echo ""
-    echo "FILTER"
+    echo "FILTERS"
     echo "  -a DATETIME     after - uses tickers after set time"
     echo "  -b DATETIME     before - uses tickers before set time"
     echo "  -t TICKER       uses only selected tickers"
@@ -23,6 +23,7 @@ print_help() {
 }
 
 BEFORE="9999-99-99"
+cmdCount=0
 # parsing parameters
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -32,26 +33,32 @@ while [ "$#" -gt 0 ]; do
         ;;
     list-tick)
         COMMAND="list-tick"
+        cmdCount=$((cmdCount=cmdCount+1))
         shift
         ;;
     profit)
         COMMAND="profit"
+        cmdCount=$((cmdCount=cmdCount+1))
         shift
         ;;
     pos)
         COMMAND="pos"
+        cmdCount=$((cmdCount=cmdCount+1))
         shift
         ;;    
     last-price)
         COMMAND="last-price"
+        cmdCount=$((cmdCount=cmdCount+1))
         shift
         ;;
     hist-ord)
         COMMAND="hist-ord"
+        cmdCount=$((cmdCount=cmdCount+1))
         shift
         ;;
     graph-pos)
         COMMAND="graph-pos"
+        cmdCount=$((cmdCount=cmdCount+1))
         shift
         ;;
     -t)
@@ -94,16 +101,21 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+if [ $cmdCount -gt 1 ]; then
+    1>&2 echo "Too many commands"
+    exit 1
+fi
 # Parsing inputs
 # Only raw text or stdin
 READ_INPUT="cat $LOG"
 # gz and raw text
 if [ "$LOG_GZ" ] && [ "$LOG" ]; then
-    READ_INPUT="$READ_INPUT | gzip -d -c $LOG_GZ"
+    READ_INPUT="gzip -d -c $LOG_GZ | $READ_INPUT -"
 # only gz
 elif [ "$LOG_GZ" ] && [ ! "$LOG" ]; then
     READ_INPUT="gzip -d -c $LOG_GZ"
 fi
+READ_INPUT="$READ_INPUT | sort"
 
 FILTER="eval $READ_INPUT"
 # FILTERS
@@ -213,6 +225,10 @@ case "$COMMAND" in
             WIDTH=1000
             FILTER="$FILTER | sort -s -t ';' -k 2,2"
             $FILTER | $posFilt | $sorter | sort -t ':' -k 2,2 -n -r | awk -F ':' -v width="$WIDTH" '{
+                if(int($2/width) == 0){
+                   printf("%-10s:\n", $1);
+                   next;
+                }                
                 printf("%-10s: ", $1);
                 if($2 < 0) {
                     for(i=0;i<int(-$2/width);i++){
@@ -227,10 +243,15 @@ case "$COMMAND" in
         else
             FILTER="$FILTER | sort -s -t ';' -k 2,2" 
             # sed stuff - puts minus at the end of number | numerical sort | put - to the front of number
+            # basically abs value of max num
             $FILTER | $posFilt | $sorter | sed -r 's/-([0-9]+.[0-9]+)/\1-/g;' | sort -t ':' -k 2,2 -n -r | sed -r 's/([0-9]+.[0-9]+)-/-\1/g;' | awk -F ':' -v width="$WIDTH" '{
                 if(max==""){
                     ($2) > 0 ? max=$2 : max=-$2;
                 }
+                if(int($2/max*width) == 0){
+                   printf("%-10s:\n", $1);
+                   next;
+                }                
                 printf("%-10s: ", $1);
                 if($2 < 0) {
                     for(i=0;i<int(-$2/max*width);i++){
