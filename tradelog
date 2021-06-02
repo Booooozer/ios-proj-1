@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# ios-proj-1 tradelog
+# author: Tomas Mauts
+
 export LC_ALL=en_US.UTF-8
 export POSIXLY_CORRECT=yes
 
